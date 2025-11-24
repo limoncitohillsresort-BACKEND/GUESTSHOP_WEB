@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ShoppingBag, 
   Utensils, 
@@ -71,7 +71,6 @@ const RESTAURANT_MENU = [
 
 // --- Helper Functions ---
 
-// The requested dynamic WhatsApp generator
 const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming) => {
   // 1. Calculate Total
   const total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -113,6 +112,16 @@ export default function GuestApp() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [orderTiming, setOrderTiming] = useState('now'); // 'now' | 'arrival'
+  
+  // Ref for the main scrollable container
+  const mainContentRef = useRef(null);
+
+  // --- Effect: Reset Scroll on Tab Change ---
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
 
   // --- Auth Logic ---
   const handleLogin = (e) => {
@@ -195,7 +204,6 @@ export default function GuestApp() {
     }
 
     // 2. Trigger WhatsApp Function
-    // Using the provided number: +52 311 268 3336 -> 523112683336
     sendToWhatsApp(cartItems, user, "523112683336", orderTiming);
 
     // 3. Cleanup
@@ -309,7 +317,7 @@ export default function GuestApp() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto relative bg-gray-50 pb-20 md:pb-0">
+      <main ref={mainContentRef} className="flex-1 overflow-y-auto relative bg-gray-50 pb-20 md:pb-0">
         
         {/* Mobile Header */}
         <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-md p-4 flex justify-between items-center md:hidden border-b border-gray-200">
