@@ -49,7 +49,6 @@ const INVENTORY = [
   { id: 302, category: 'minibar', name: 'Champagne & Ice', price: 65, image: '🍾', desc: 'Moët & Chandon with bucket' },
   { id: 303, category: 'minibar', name: 'Late Night Snack Box', price: 22, image: '🥨', desc: 'Chips, chocolate, nuts, soda' },
   { id: 304, category: 'minibar', name: 'Bag of Ice (5kg)', price: 5, image: '🧊', desc: 'Delivered to your door' },
-  { id: 304, category: 'minibar', name: 'Charcoal (2kg)', price: 4, image: '"placeholder"', desc: 'Delivered to your door' },
   
   // Essentials
   { id: 401, category: 'essentials', name: 'Luxury Towel Set', price: 12, image: '🧖', desc: '2 Bath, 2 Hand, 2 Face' },
