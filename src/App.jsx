@@ -1,29 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
-  ShoppingBag, 
-  Utensils, 
-  Armchair, 
-  Wine, 
-  Dog, 
-  Users, 
-  ChefHat, 
-  Search, 
-  X, 
-  Plus, 
-  Minus, 
-  Check, 
-  ArrowRight,
-  LogOut,
-  CreditCard,
-  MessageCircle,
-  Trash2,
-  Home,
-  Clock,
-  Calendar
+  ShoppingBag, Utensils, Armchair, Wine, Dog, ChefHat, 
+  X, Plus, Minus, Check, LogOut, MessageCircle, Trash2, 
+  Home, Clock, Calendar, Loader2, MapPin
 } from 'lucide-react';
 
-// --- Mock Data ---
+// --- Configuration ---
+// Ensure these match your n8n Production URLs exactly
+const N8N_AUTH_WEBHOOK = "https://maracuyabackend.app.n8n.cloud/webhook/guest-auth"; 
+const N8N_ORDER_WEBHOOK = "https://maracuyabackend.app.n8n.cloud/webhook/log-order";
+const RESTAURANT_PHONE = "523112683336";
 
+// --- Mock Inventory Data ---
 const CATEGORIES = [
   { id: 'kitchen', name: 'Kitchen & Dining', icon: Utensils },
   { id: 'furniture', name: 'Furniture', icon: Armchair },
@@ -34,28 +22,19 @@ const CATEGORIES = [
 ];
 
 const INVENTORY = [
-  // Kitchen
   { id: 101, category: 'kitchen', name: 'Premium Espresso Machine', price: 25, image: '☕', desc: 'Nespresso Vertuo + 10 pods' },
   { id: 102, category: 'kitchen', name: 'Rice Cooker', price: 10, image: '🍚', desc: '3-cup capacity, non-stick' },
   { id: 103, category: 'kitchen', name: 'BBQ Grill Set', price: 15, image: '🥩', desc: 'Portable electric grill & utensils' },
-  
-  // Furniture
   { id: 201, category: 'furniture', name: 'Ergonomic Office Chair', price: 20, image: '🪑', desc: 'For remote work setups' },
   { id: 202, category: 'furniture', name: 'High Chair', price: 0, image: '👶', desc: 'Sanitized baby high chair' },
   { id: 203, category: 'furniture', name: 'Extra Cot / Folding Bed', price: 45, image: '🛏️', desc: 'Includes linens and pillow' },
-
-  // Mini Bar
   { id: 301, category: 'minibar', name: 'Local Craft Beer Pack', price: 18, image: '🍺', desc: '4-pack of city specials' },
   { id: 302, category: 'minibar', name: 'Champagne & Ice', price: 65, image: '🍾', desc: 'Moët & Chandon with bucket' },
   { id: 303, category: 'minibar', name: 'Late Night Snack Box', price: 22, image: '🥨', desc: 'Chips, chocolate, nuts, soda' },
   { id: 304, category: 'minibar', name: 'Bag of Ice (5kg)', price: 5, image: '🧊', desc: 'Delivered to your door' },
-
-  // Essentials
   { id: 401, category: 'essentials', name: 'Luxury Towel Set', price: 12, image: '🧖', desc: '2 Bath, 2 Hand, 2 Face' },
   { id: 402, category: 'essentials', name: 'Beach Kit', price: 20, image: '🏖️', desc: '2 Towels, Umbrella, Cooler' },
   { id: 403, category: 'essentials', name: 'Toiletries Restock', price: 15, image: '🧴', desc: 'Shampoo, Conditioner, Soap' },
-
-  // Services
   { id: 501, category: 'services', name: 'Pet Cleaning Fee', price: 50, image: '🐕', desc: 'Required per pet per stay' },
   { id: 502, category: 'services', name: 'Extra Guest (Per Night)', price: 30, image: '👥', desc: 'Includes amenities' },
   { id: 503, category: 'services', name: 'Late Checkout (2PM)', price: 40, image: '🕑', desc: 'Subject to availability' },
@@ -69,26 +48,26 @@ const RESTAURANT_MENU = [
   { id: 905, name: 'Chocolate Lava Cake', price: 9, desc: 'With vanilla ice cream' },
 ];
 
-// --- Helper Functions ---
-
-// The requested dynamic WhatsApp generator
-const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming) => {
-  // 1. Calculate Total
+// --- Helper: WhatsApp Sender ---
+const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming, orderId) => {
   const total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-  // 2. Build the Message String
+  
   let message = `*NEW ORDER REQUEST* 🛒\n`;
+  if (orderId) message += `Order #: *${orderId}*\n`;
   message += `Booking ID: ${user.bookingid}\n`;
   message += `Name: ${user.lastname}\n`;
+  message += `Location: *${user.property || 'Not Specified'}*\n`;
   
-  // Add Timing Flag
   const timingText = orderTiming === 'now' ? 'ASAP / IMMEDIATE' : 'UPON ARRIVAL';
   message += `Timing: *${timingText}*\n`;
+  
+  if (orderTiming === 'arrival' && user.stay && user.stay.start) {
+      message += `Arrival Date: ${user.stay.start.split('T')[0]}\n`;
+  }
+
   message += `------------------\n`;
 
-  // 3. Dynamic Itemization Loop
   cartItems.forEach(item => {
-    // Format: "2x Burger - $20.00"
     const itemTotal = (item.price * item.quantity).toFixed(2);
     message += `${item.quantity}x ${item.name} - $${itemTotal}\n`;
   });
@@ -97,31 +76,82 @@ const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming) => {
   message += `*TOTAL: $${total.toFixed(2)}*\n\n`;
   message += `(Please send this message to finalize your order)`;
 
-  // 4. Encode and Open URL
   const url = `https://wa.me/${businessNumber}?text=${encodeURIComponent(message)}`;
-
   window.open(url, '_blank');
 };
 
-
-// --- Main App Component ---
-
 export default function GuestApp() {
-  const [user, setUser] = useState(null); // { lastname, bookingid }
+  // User object uses lowercase keys to match n8n return data
+  const [user, setUser] = useState(null); // { lastname, bookingid, ... }
+  
   const [activeTab, setActiveTab] = useState('kitchen');
-  const [cart, setCart] = useState({}); // { itemId: quantity }
+  const [cart, setCart] = useState({}); 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [orderTiming, setOrderTiming] = useState('now'); // 'now' | 'arrival'
+  const [orderTiming, setOrderTiming] = useState('now'); 
+  
+  // Loading States
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState(null);
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false);
 
-  // --- Auth Logic ---
-  const handleLogin = (e) => {
+  const mainContentRef = useRef(null);
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
+
+  // --- Auth Logic (Connected to n8n) ---
+  const handleLogin = async (e) => {
     e.preventDefault();
+    setLoginError(null);
+    setIsLoggingIn(true);
+
     const formData = new FormData(e.target);
-    const lasname = formData.get('lastname');
-    const bookingid = formData.get('bookingid');
-    if (lastname && bookingid) {
-      setUser({ lastname, bookingid });
+    // IMPORTANT: Using lowercase 'lastname' and 'bookingid' to match n8n logic
+    const lastname = formData.get('lastname').trim(); 
+    const bookingid = formData.get('bookingid').trim(); 
+
+    if (!lastname || !bookingid) {
+      setLoginError("Please fill in both fields.");
+      setIsLoggingIn(false);
+      return;
+    }
+
+    try {
+      // Call n8n Webhook for Authentication
+      // Sending lowercase keys: { "lastname": "...", "bookingid": "..." }
+      const response = await fetch(N8N_AUTH_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastname, bookingid })
+      });
+
+      if (!response.ok) throw new Error("Connection failed");
+      
+      const data = await response.json();
+
+      if (data.valid) {
+        // Success: n8n returns valid=true and guest details
+        setUser({ 
+          lastname, 
+          bookingid,
+          name: data.guest.name,         
+          property: data.guest.property, 
+          email: data.guest.email,
+          phone: data.guest.phone,
+          stay: data.guest.stay          
+        });
+      } else {
+        setLoginError(data.message || "Reservation not found.");
+      }
+    } catch (err) {
+      console.error(err);
+      setLoginError("Unable to verify reservation. Please try again.");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -177,9 +207,10 @@ export default function GuestApp() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- Unified Checkout Handler ---
-  const handleCheckout = () => {
-    // 1. Transform Cart State {id: qty} into Array [{name, price, quantity}]
+  // --- Checkout ---
+  const handleCheckout = async () => {
+    setIsProcessingOrder(true);
+
     const cartItems = Object.entries(cart).map(([id, qty]) => {
       const item = [...INVENTORY, ...RESTAURANT_MENU].find(i => i.id === parseInt(id));
       return item ? { 
@@ -191,16 +222,43 @@ export default function GuestApp() {
 
     if (cartItems.length === 0) {
       showNotification("Your cart is empty!");
+      setIsProcessingOrder(false);
       return;
     }
 
-    // 2. Trigger WhatsApp Function
-    // Using the provided number: +52 311 268 3336 -> 523112683336
-    sendToWhatsApp(cartItems, user, "523112683336", orderTiming);
+    let orderId = null;
 
-    // 3. Cleanup
+    try {
+      // Send Data to n8n to log order
+      // Check if URL is valid before fetching to avoid errors
+      if (N8N_ORDER_WEBHOOK && !N8N_ORDER_WEBHOOK.includes('your-n8n-instance')) {
+        const response = await fetch(N8N_ORDER_WEBHOOK, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user,
+            cart: cartItems,
+            total: getCartTotal(),
+            timing: orderTiming,
+            timestamp: new Date().toISOString()
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          orderId = data.orderId; 
+        }
+      }
+    } catch (err) {
+      console.error("Failed to log order", err);
+      // Proceed to WhatsApp even if logging fails
+    }
+
+    sendToWhatsApp(cartItems, user, RESTAURANT_PHONE, orderTiming, orderId);
+
     setCart({});
     setIsCartOpen(false);
+    setIsProcessingOrder(false);
     showNotification("Opening WhatsApp...");
   };
 
@@ -237,15 +295,30 @@ export default function GuestApp() {
                 type="text" 
                 required 
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                placeholder="e.g. #88342"
+                placeholder="e.g. 88342"
               />
             </div>
-            <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-lg">
-              Enter Guest Zone
+            
+            {loginError && (
+              <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg text-center font-medium">
+                {loginError}
+              </div>
+            )}
+
+            <button 
+              type="submit" 
+              disabled={isLoggingIn}
+              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-wait"
+            >
+              {isLoggingIn ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} />
+                  <span>Verifying...</span>
+                </>
+              ) : (
+                <span>Enter Guest Zone</span>
+              )}
             </button>
-            <p className="text-xs text-center text-gray-400 mt-4">
-              By entering, you agree to the house rules and charges for selected amenities.
-            </p>
           </form>
         </div>
       </div>
@@ -309,11 +382,22 @@ export default function GuestApp() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto relative bg-gray-50 pb-20 md:pb-0">
+      <main ref={mainContentRef} className="flex-1 overflow-y-auto relative bg-gray-50 pb-20 md:pb-0">
         
         {/* Mobile Header */}
         <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-md p-4 flex justify-between items-center md:hidden border-b border-gray-200">
            <span className="font-bold text-gray-800">{CATEGORIES.find(c => c.id === activeTab)?.name}</span>
+           <button 
+            onClick={() => setIsCartOpen(true)}
+            className="relative p-2 bg-indigo-100 rounded-full text-indigo-700"
+           >
+             <ShoppingBag size={20} />
+             {cartItemCount > 0 && (
+               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 flex items-center justify-center rounded-full font-bold">
+                 {cartItemCount}
+               </span>
+             )}
+           </button>
         </div>
 
         {/* Desktop Header */}
@@ -322,6 +406,23 @@ export default function GuestApp() {
             <h1 className="text-3xl font-bold text-gray-900">{CATEGORIES.find(c => c.id === activeTab)?.name}</h1>
             <p className="text-gray-500 mt-1">Select items to add to your stay</p>
           </div>
+          <button 
+            onClick={() => setIsCartOpen(true)}
+            className="group flex items-center space-x-3 bg-white px-5 py-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition"
+          >
+             <div className="relative">
+               <ShoppingBag className="text-gray-600 group-hover:text-indigo-600 transition" />
+               {cartItemCount > 0 && (
+                 <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">
+                   {cartItemCount}
+                 </span>
+               )}
+             </div>
+             <div className="text-left">
+                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Total</p>
+                <p className="font-bold text-indigo-600">${getCartTotal()}</p>
+             </div>
+          </button>
         </div>
 
         {/* Dynamic Content */}
