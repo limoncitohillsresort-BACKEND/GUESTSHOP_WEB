@@ -103,14 +103,13 @@ export default function GuestApp() {
     }
   }, [activeTab]);
 
-  // --- Auth Logic ---
+// --- Auth Logic (Connected to n8n) ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError(null);
     setIsLoggingIn(true);
 
     const formData = new FormData(e.target);
-    // Force lowercase keys to ensure backend compatibility
     const lastname = formData.get('lastname').trim(); 
     const bookingid = formData.get('bookingid').trim(); 
 
@@ -123,32 +122,40 @@ export default function GuestApp() {
     try {
       const response = await fetch(N8N_AUTH_WEBHOOK, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json' // Explicitly ask for JSON
+        },
         body: JSON.stringify({ lastname, bookingid })
       });
 
-      if (!response.ok) throw new Error("Connection failed");
+      if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Server error: ${response.status} - ${text}`);
+      }
       
+      // parsing logic
       const rawData = await response.json();
-      // Handle n8n array response wrapper
       const data = Array.isArray(rawData) ? rawData[0] : rawData;
 
-      if (data && data.valid) {
+      console.log("Auth Response:", data); 
+
+      if (data && data.valid === true) { // Strict check
         setUser({ 
           lastname, 
           bookingid,
-          name: data.guest.name,
-          property: data.guest.property,
-          email: data.guest.email,
-          phone: data.guest.phone,
-          stay: data.guest.stay
+          name: data.guest?.name,
+          property: data.guest?.property,
+          email: data.guest?.email,
+          phone: data.guest?.phone,
+          stay: data.guest?.stay
         });
       } else {
         setLoginError(data?.message || "Reservation not found.");
       }
     } catch (err) {
-      console.error(err);
-      setLoginError("System offline or invalid credentials.");
+      console.error("Login Error Details:", err);
+      setLoginError("System offline or invalid credentials. Check console for details.");
     } finally {
       setIsLoggingIn(false);
     }
