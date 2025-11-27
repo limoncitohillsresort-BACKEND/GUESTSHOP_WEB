@@ -110,6 +110,7 @@ export default function GuestApp() {
     setIsLoggingIn(true);
 
     const formData = new FormData(e.target);
+    // Force lowercase keys to ensure backend compatibility
     const lastname = formData.get('lastname').trim(); 
     const bookingid = formData.get('bookingid').trim(); 
 
@@ -129,12 +130,8 @@ export default function GuestApp() {
       if (!response.ok) throw new Error("Connection failed");
       
       const rawData = await response.json();
-      
-      // FIX: Handle n8n returning an Array vs Object
-      // If n8n returns [ { valid: true } ], we grab the first item.
+      // Handle n8n array response wrapper
       const data = Array.isArray(rawData) ? rawData[0] : rawData;
-
-      console.log("Auth Response:", data); // Debugging log
 
       if (data && data.valid) {
         setUser({ 
