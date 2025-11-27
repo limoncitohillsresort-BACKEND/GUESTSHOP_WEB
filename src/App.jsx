@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 
 // --- Configuration ---
-// Ensure these match your n8n Production URLs exactly
 const N8N_AUTH_WEBHOOK = "https://maracuyabackend.app.n8n.cloud/webhook/guest-auth"; 
 const N8N_ORDER_WEBHOOK = "https://maracuyabackend.app.n8n.cloud/webhook/log-order";
 const RESTAURANT_PHONE = "523112683336";
@@ -48,7 +47,8 @@ const RESTAURANT_MENU = [
   { id: 905, name: 'Chocolate Lava Cake', price: 9, desc: 'With vanilla ice cream' },
 ];
 
-// --- Helper: WhatsApp Sender ---
+// --- Helper Functions ---
+
 const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming, orderId) => {
   const total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   
@@ -80,15 +80,15 @@ const sendToWhatsApp = (cartItems, user, businessNumber, orderTiming, orderId) =
   window.open(url, '_blank');
 };
 
+// --- Main App Component ---
+
 export default function GuestApp() {
-  // User object uses lowercase keys to match n8n return data
-  const [user, setUser] = useState(null); // { lastname, bookingid, ... }
-  
+  const [user, setUser] = useState(null); // { lastname, bookingid }
   const [activeTab, setActiveTab] = useState('kitchen');
   const [cart, setCart] = useState({}); 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [orderTiming, setOrderTiming] = useState('now'); 
+  const [orderTiming, setOrderTiming] = useState('now');
   
   // Loading States
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -103,14 +103,13 @@ export default function GuestApp() {
     }
   }, [activeTab]);
 
-  // --- Auth Logic (Connected to n8n) ---
+  // --- Auth Logic ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError(null);
     setIsLoggingIn(true);
 
     const formData = new FormData(e.target);
-    // IMPORTANT: Using lowercase 'lastname' and 'bookingid' to match n8n logic
     const lastname = formData.get('lastname').trim(); 
     const bookingid = formData.get('bookingid').trim(); 
 
@@ -121,8 +120,6 @@ export default function GuestApp() {
     }
 
     try {
-      // Call n8n Webhook for Authentication
-      // Sending lowercase keys: { "lastname": "...", "bookingid": "..." }
       const response = await fetch(N8N_AUTH_WEBHOOK, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,25 +128,30 @@ export default function GuestApp() {
 
       if (!response.ok) throw new Error("Connection failed");
       
-      const data = await response.json();
+      const rawData = await response.json();
+      
+      // FIX: Handle n8n returning an Array vs Object
+      // If n8n returns [ { valid: true } ], we grab the first item.
+      const data = Array.isArray(rawData) ? rawData[0] : rawData;
 
-      if (data.valid) {
-        // Success: n8n returns valid=true and guest details
+      console.log("Auth Response:", data); // Debugging log
+
+      if (data && data.valid) {
         setUser({ 
           lastname, 
           bookingid,
-          name: data.guest.name,         
-          property: data.guest.property, 
+          name: data.guest.name,
+          property: data.guest.property,
           email: data.guest.email,
           phone: data.guest.phone,
-          stay: data.guest.stay          
+          stay: data.guest.stay
         });
       } else {
-        setLoginError(data.message || "Reservation not found.");
+        setLoginError(data?.message || "Reservation not found.");
       }
     } catch (err) {
       console.error(err);
-      setLoginError("Unable to verify reservation. Please try again.");
+      setLoginError("System offline or invalid credentials.");
     } finally {
       setIsLoggingIn(false);
     }
@@ -207,7 +209,7 @@ export default function GuestApp() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- Checkout ---
+  // --- Checkout Logic ---
   const handleCheckout = async () => {
     setIsProcessingOrder(true);
 
@@ -229,8 +231,6 @@ export default function GuestApp() {
     let orderId = null;
 
     try {
-      // Send Data to n8n to log order
-      // Check if URL is valid before fetching to avoid errors
       if (N8N_ORDER_WEBHOOK && !N8N_ORDER_WEBHOOK.includes('your-n8n-instance')) {
         const response = await fetch(N8N_ORDER_WEBHOOK, {
           method: 'POST',
@@ -245,13 +245,13 @@ export default function GuestApp() {
         });
 
         if (response.ok) {
-          const data = await response.json();
+          const rawData = await response.json();
+          const data = Array.isArray(rawData) ? rawData[0] : rawData;
           orderId = data.orderId; 
         }
       }
     } catch (err) {
-      console.error("Failed to log order", err);
-      // Proceed to WhatsApp even if logging fails
+      console.error("Logging failed", err);
     }
 
     sendToWhatsApp(cartItems, user, RESTAURANT_PHONE, orderTiming, orderId);
